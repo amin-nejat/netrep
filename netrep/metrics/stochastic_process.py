@@ -42,6 +42,7 @@ class GPStochasticMetric:
             n_dims,
             alpha: float=1.0, 
             group: Literal["orth", "perm", "identity"] = "orth", 
+            type: Literal["adapted", "non-adapted"] = "non-adapted",
             init: Literal["means", "rand"] = "means", 
             niter: int = 1000, 
             tol: float = 1e-8,
@@ -52,6 +53,7 @@ class GPStochasticMetric:
             raise ValueError("alpha parameter should be between zero and two.")
         self.alpha = alpha
         self.group = group
+        self.type = type
         self.init = init
         self.niter = niter
         self.tol = tol
@@ -104,10 +106,16 @@ class GPStochasticMetric:
             elif self.init == "rand":
                 init_T = rand_orth(means_X_t.shape[1], random_state=self._rs)
 
-            T, loss_hist = _fit_gp_alignment(
-                self.n_dims, means_X_t, means_Y_t, covs_X, covs_Y, init_T,
-                self.alpha, self.group, self.niter, self.tol
-            )
+            if self.type == "adapted":
+                T, loss_hist = _fit_adapted_gp_alignment(
+                    self.n_dims, means_X_t, means_Y_t, covs_X, covs_Y, init_T,
+                    self.alpha, self.group, self.niter, self.tol
+                )
+            elif self.type == "non-adapted":
+                T, loss_hist = _fit_gp_alignment(
+                    self.n_dims, means_X_t, means_Y_t, covs_X, covs_Y, init_T,
+                    self.alpha, self.group, self.niter, self.tol
+                )
             if best_loss > loss_hist[-1]:
                 best_loss = loss_hist[-1]
                 best_T = T
@@ -316,10 +324,10 @@ def _fit_gp_alignment(
     """Helper function for fitting alignment between Gaussian-distributed responses."""
 
     vX, uX = np.linalg.eigh(covs_X)
-    sX = np.einsum("jk,k,lk->jl", uX, np.sqrt(vX), uX, optimize=True)
+    sX = np.einsum("jk,k,lk->jl", uX, safe_sqrt(vX), uX, optimize=True)
     
     vY, uY = np.linalg.eigh(covs_Y)
-    sY = np.einsum("jk,k,lk->jl", uY, np.sqrt(vY), uY, optimize=True)
+    sY = np.einsum("jk,k,lk->jl", uY, safe_sqrt(vY), uY, optimize=True)
 
     loss_hist = []
 
@@ -348,13 +356,63 @@ def _fit_gp_alignment(
     return T, loss_hist
 
 
-def split(array, nrows, ncols):
+def _fit_adapted_gp_alignment(
+        n_dims: int,
+        means_X: npt.NDArray, 
+        means_Y: npt.NDArray, 
+        covs_X: npt.NDArray, 
+        covs_Y: npt.NDArray, 
+        T: npt.NDArray, 
+        alpha: float, 
+        group: Literal["orth", "perm", "identity"], 
+        niter: int, 
+        tol: float,
+    ) -> Tuple[npt.NDArray, List[float]]:
+    """Helper function for fitting alignment between Gaussian-distributed responses."""
+
+    sX = np.linalg.cholesky(covs_X)
+    sY = np.linalg.cholesky(covs_Y)
+    
+    loss_hist = []
+
+    n_times = covs_X.shape[0]//n_dims
+
+    for i in range(niter):
+        sY_splitted = split(np.kron(np.eye(n_times),T.T) @ sY, 1, n_dims, separate=True).squeeze()
+        sX_splitted = split(sX, 1, n_dims, separate=True).squeeze()
+        
+        Qs = [align(sx, sy) for sx, sy in zip(sX_splitted, sY_splitted)]
+
+        A = np.row_stack(
+            [alpha * means_X] +
+            list(sX_splitted)
+        )
+
+        B = np.row_stack(
+            [alpha * means_Y] +
+            [((2-alpha) * sy @ Q) for Q, sy in zip(Qs, sY_splitted)]
+        )
+
+        T = align(B, A, group=group)
+        loss_hist.append(np.linalg.norm(A - B @ T))
+        if i < 2:
+            pass
+        elif (loss_hist[-2] - loss_hist[-1]) < tol:
+            break
+
+    return T, loss_hist
+
+def split(array, nrows, ncols, separate=False):
     """Split a matrix into sub-matrices."""
     
     r, h = array.shape
     blocks = array.reshape(
         h//nrows, nrows, -1, ncols
-    ).swapaxes(1,2).reshape(-1, nrows, ncols)
-    
-    return blocks.reshape(-1,blocks.shape[-1])
+    ).swapaxes(1,2)
 
+    if separate: return blocks.transpose(1,0,2,3)
+    
+    return blocks.reshape(-1, nrows, ncols).reshape(-1,blocks.shape[-1])
+
+def safe_sqrt(x):
+    return np.sqrt(np.maximum(x, 0))
