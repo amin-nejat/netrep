@@ -3,7 +3,9 @@ import itertools
 import multiprocessing
 from typing import Tuple, Optional, Union, Literal, List
 
+import scipy as sp
 import numpy as np
+
 import numpy.typing as npt
 from sklearn.utils.validation import check_random_state
 from tqdm import tqdm
@@ -308,7 +310,6 @@ class GPStochasticMetric:
         return D_train, D_test
     
 
-
 def _fit_gp_alignment(
         n_dims: int,
         means_X: npt.NDArray, 
@@ -334,7 +335,7 @@ def _fit_gp_alignment(
     n_times = covs_X.shape[0]//n_dims
 
     for i in range(niter):
-
+        # sy @ Q.T = sx
         Qs = align(np.kron(np.eye(n_times),T.T) @ sY, sX, group="orth")
         A = np.row_stack(
             [alpha * means_X] +
@@ -355,7 +356,6 @@ def _fit_gp_alignment(
 
     return T, loss_hist
 
-
 def _fit_adapted_gp_alignment(
         n_dims: int,
         means_X: npt.NDArray, 
@@ -370,31 +370,52 @@ def _fit_adapted_gp_alignment(
     ) -> Tuple[npt.NDArray, List[float]]:
     """Helper function for fitting alignment between Gaussian-distributed responses."""
 
+    # Cholesky factorization of covariance matrices
     sX = np.linalg.cholesky(covs_X)
     sY = np.linalg.cholesky(covs_Y)
     
     loss_hist = []
 
     n_times = covs_X.shape[0]//n_dims
+    
+    # Evaluating the tensor M_{A,t}
+    # [F_0(\Sigma),F_1(\Sigma),\dots,F_T(Sigma)] for \Sigma_A
+    # where F_t(\Sigma) is [\Sigma_{tt},\vdots,\Sigma_{Tt}]
+    # Check appendix F for details
+    sX_splitted = split(sX, 1, n_dims, separate=True)[:,:,0]
+
+    # Evaluating the covariance part of the tall matrix N_A
+    # G(\mu,\Sigma) = [\mu_1^{\top}\vdots\mu_T^{\top},\Sigma_{11},\vdots,\Sigma{TT}]
+    # Check appendix F for details
+    sX_splitted_T = split(sX.T, n_dims, n_dims)
+
+    # Evaluating N_A
+    A = np.row_stack(
+        [alpha * means_X] +
+        [(2-alpha)*sX_splitted_T]
+    )
 
     for i in range(niter):
-        sY_splitted = split(np.kron(np.eye(n_times),T.T) @ sY, 1, n_dims, separate=True).squeeze()
-        sX_splitted = split(sX, 1, n_dims, separate=True).squeeze()
+        # Evaluating M_{B,t}
+        sY_splitted = split(np.kron(np.eye(n_times),T.T) @ sY, 1, n_dims, separate=True)[:,:,0]
         
-        Qs = [align(sx, sy) for sx, sy in zip(sX_splitted, sY_splitted)]
+        # Solving for Qs (noise rotations)
+        Qs = [align(sy, sx) for sx, sy in zip(sX_splitted, sY_splitted)]
 
-        A = np.row_stack(
-            [alpha * means_X] +
-            list(sX_splitted)
-        )
+        Q_flat = sp.linalg.block_diag(*Qs)
+        sY_splitted_T = split((sY@Q_flat).T, n_dims, n_dims)
+        
 
+        # Evaluating N_B
         B = np.row_stack(
             [alpha * means_Y] +
-            [((2-alpha) * sy @ Q) for Q, sy in zip(Qs, sY_splitted)]
+            [(2-alpha)*sY_splitted_T]
         )
 
+        # Solving for the spatial rotation
         T = align(B, A, group=group)
         loss_hist.append(np.linalg.norm(A - B @ T))
+        
         if i < 2:
             pass
         elif (loss_hist[-2] - loss_hist[-1]) < tol:
