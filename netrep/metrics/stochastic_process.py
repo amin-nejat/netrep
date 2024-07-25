@@ -10,7 +10,7 @@ import numpy.typing as npt
 from sklearn.utils.validation import check_random_state
 from tqdm import tqdm
 
-from netrep.utils import align, sq_bures_metric, rand_orth
+from netrep.utils import align, sq_bures_metric, rand_orth, sq_adapted_bures_metric, safe_cholesky, safe_sqrt
 
 
 class GPStochasticMetric:
@@ -192,7 +192,11 @@ class GPStochasticMetric:
         mY, sY = Y
         
         A = np.sum((mX - mY) ** 2)
-        B = sq_bures_metric(sX, sY)
+        if self.type == 'adapted':
+            B = sq_adapted_bures_metric(sX, sY)
+        if self.type =='non-adapted':
+            B = sq_bures_metric(sX, sY)
+
         mn = np.mean(self.alpha * A + (2 - self.alpha) * B)
         # mn should always be positive but sometimes numerical rounding errors
         # cause mn to be very slightly negative, causing sqrt(mn) to be nan.
@@ -371,8 +375,10 @@ def _fit_adapted_gp_alignment(
     """Helper function for fitting alignment between Gaussian-distributed responses."""
 
     # Cholesky factorization of covariance matrices
-    sX = np.linalg.cholesky(covs_X)
-    sY = np.linalg.cholesky(covs_Y)
+    # sX = np.linalg.cholesky(covs_X)
+    # sY = np.linalg.cholesky(covs_Y)
+    sX = safe_cholesky(covs_X)
+    sY = safe_cholesky(covs_Y)
     
     loss_hist = []
 
@@ -405,7 +411,6 @@ def _fit_adapted_gp_alignment(
         Q_flat = sp.linalg.block_diag(*Qs)
         sY_splitted_T = split((sY@Q_flat).T, n_dims, n_dims)
         
-
         # Evaluating N_B
         B = np.row_stack(
             [alpha * means_Y] +
@@ -414,6 +419,7 @@ def _fit_adapted_gp_alignment(
 
         # Solving for the spatial rotation
         T = align(B, A, group=group)
+        
         loss_hist.append(np.linalg.norm(A - B @ T))
         
         if i < 2:
@@ -435,5 +441,3 @@ def split(array, nrows, ncols, separate=False):
     
     return blocks.reshape(-1, nrows, ncols).reshape(-1,blocks.shape[-1])
 
-def safe_sqrt(x):
-    return np.sqrt(np.maximum(x, 0))
