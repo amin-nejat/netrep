@@ -15,6 +15,7 @@ from netrep.utils import rand_orth
 
 TOL = 1e-5
 
+
 # %% Class for sampling from a gaussian process given a kernel
 class GaussianProcess:
     def __init__(self,kernel,D):
@@ -87,9 +88,11 @@ def test_gaussian_process(seed, t, n, k):
     # Compute full SSD
     metric = GaussianStochasticMetric(group="orth",init="rand",n_restarts=100)
 
+
     A_full = [A[0][None],A[1][None]]
     B_full = [B[0][None],B[1][None]]
 
     full_ssd = metric.fit_score(A_full,B_full)
 
     assert abs(full_ssd) < TOL
+

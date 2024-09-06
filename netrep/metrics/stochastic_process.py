@@ -118,6 +118,7 @@ class GPStochasticMetric:
                     self.n_dims, means_X_t, means_Y_t, covs_X, covs_Y, init_T,
                     self.alpha, self.group, self.niter, self.tol
                 )
+
             if best_loss > loss_hist[-1]:
                 best_loss = loss_hist[-1]
                 best_T = T
@@ -192,6 +193,7 @@ class GPStochasticMetric:
         mY, sY = Y
         
         A = np.sum((mX - mY) ** 2)
+
         if self.type == 'adapted':
             B = sq_adapted_bures_metric(sX, sY)
         if self.type =='non-adapted':
@@ -339,7 +341,6 @@ def _fit_gp_alignment(
     n_times = covs_X.shape[0]//n_dims
 
     for i in range(niter):
-        # sy @ Q.T = sx
         Qs = align(np.kron(np.eye(n_times),T.T) @ sY, sX, group="orth")
         A = np.row_stack(
             [alpha * means_X] +
@@ -440,4 +441,5 @@ def split(array, nrows, ncols, separate=False):
     if separate: return blocks.transpose(1,0,2,3)
     
     return blocks.reshape(-1, nrows, ncols).reshape(-1,blocks.shape[-1])
+
 
