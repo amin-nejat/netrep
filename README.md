@@ -211,9 +211,9 @@ The first method models network response distributions as Gaussian Process, and 
 
 metric = GPStochasticMetric(
     n_dims=num_neurons, # number of neurons
-    group="orth", 		# nuisance transformation 
+    group="orth", 	# nuisance transformation 
     type='adapted', 	# adapted or non-adapted optimal transport distance
-	alpha=alpha 		# alpha described above
+    alpha=alpha 	# alpha described above
 )
 
 metric.fit(Xi, Xj)
@@ -238,17 +238,17 @@ We also provide dynamic stochastic shape metrics based on the differentiable opt
 
 # Fit alignment
 GPStochasticDiff(
-	n_dims=num_neurons, # number of neurons
-	n_times=num_times, 	# number of time points
-	type="Bures" 		# distance type, options are Bures, Adapted_Bures, Knothe_Rosenblatt, Marginal_Bures
+    n_dims=num_neurons, # number of neurons
+    n_times=num_times, 	# number of time points
+    type="Bures" 	# distance type, options are Bures, Adapted_Bures, Knothe_Rosenblatt, Marginal_Bures
 )
 
 # Evaluate the distance between the two networks
 dist = metric.fit_score(
-	Xi, Xj, 
-	lr=1e-3, 		# learning rate
-	tol=1e-5, 		# tolerance of optimization
-	epsilon=1e-6 	# used for well-conditioning covariances
+    Xi, Xj, 
+    lr=1e-3, 		# learning rate
+    tol=1e-5, 		# tolerance of optimization
+    epsilon=1e-6 	# used for well-conditioning covariances
 )
 ```
 
