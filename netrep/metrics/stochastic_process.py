@@ -157,7 +157,7 @@ class GPStochasticMetric:
         n_times = means_Y.shape[0]//self.n_dims
         means_Y_t = means_Y.reshape(n_times,self.n_dims)
 
-        T_full = np.kron(np.eye(n_times),self.T)
+        T_full = sp.sparse.kron(sp.sparse.eye(n_times, format='csr'), self.T, format='csr').toarray()
         
         Y_transformed = (
             (means_Y_t @ self.T).flatten(),
@@ -341,7 +341,8 @@ def _fit_gp_alignment(
     n_times = covs_X.shape[0]//n_dims
 
     for i in range(niter):
-        Qs = align(np.kron(np.eye(n_times),T.T) @ sY, sX, group="orth")
+        kronecker_prod = sp.sparse.kron(sp.sparse.eye(n_times, format='csr'), T.T, format='csr').toarray()
+        Qs = align(kronecker_prod @ sY, sX, group="orth")
         A = np.row_stack(
             [alpha * means_X] +
             [split((2-alpha)*sX,n_dims,n_dims)]
@@ -404,7 +405,8 @@ def _fit_adapted_gp_alignment(
 
     for i in range(niter):
         # Evaluating M_{B,t}
-        sY_splitted = split(np.kron(np.eye(n_times),T.T) @ sY, 1, n_dims, separate=True)[:,:,0]
+        kronecker_prod = sp.sparse.kron(sp.sparse.eye(n_times, format='csr'), T.T, format='csr').toarray()
+        sY_splitted = split(kronecker_prod @ sY, 1, n_dims, separate=True)[:,:,0]
         
         # Solving for Qs (noise rotations)
         Qs = [align(sy, sx) for sx, sy in zip(sX_splitted, sY_splitted)]
